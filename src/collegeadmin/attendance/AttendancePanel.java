@@ -1,252 +1,1080 @@
 package collegeadmin.attendance;
 
-import collegeadmin.database.DatabaseConnection;
-
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.sql.*;
 import java.time.LocalDate;
 
+import collegeadmin.database.DatabaseConnection;
+
 public class AttendancePanel extends JPanel {
 
-    private static final double MIN_PERCENT = 75.0;
+    private static final long serialVersionUID = 1L;
 
-    private static class Item {
-        final int id; final String label;
-        Item(int id, String label) { this.id = id; this.label = label; }
-        public String toString() { return label; }
-    }
+    // Colour palette
+    private static final Color SOFT_BLUE =
+        new Color(234, 242, 248);
 
-    private JComboBox<Item> cmbCourse = new JComboBox<>();
-    private JTextField txtDate = new JTextField(LocalDate.now().toString(), 9);
+    private static final Color SAGE_GREEN =
+        new Color(220, 233, 223);
 
-    private DefaultTableModel markModel = new DefaultTableModel(
-        new String[]{"Student ID", "Roll No", "Name", "Present"}, 0) {
-        @Override public Class<?> getColumnClass(int c) {
-            return c == 3 ? Boolean.class : Object.class;
-        }
-        @Override public boolean isCellEditable(int r, int c) { return c == 3; }
-    };
-    private DefaultTableModel pctModel = new DefaultTableModel(
-        new String[]{"Roll No", "Name", "Held", "Present", "Percentage", "Status"}, 0);
-    private JTable table = new JTable(markModel);
+    private static final Color MUTED_TEAL =
+        new Color(86, 143, 139);
+
+    private static final Color DARK_TEAL =
+        new Color(48, 91, 91);
+
+    private static final Color WHITE = Color.WHITE;
+
+    private static final Color TEXT_COLOR =
+        new Color(55, 75, 85);
+
+    // Form components
+    private JComboBox<StudentItem> studentCombo;
+    private JComboBox<CourseItem> courseCombo;
+    private JComboBox<String> statusCombo;
+
+    private JSpinner dateSpinner;
+
+    // Table
+    private JTable attendanceTable;
+    private DefaultTableModel model;
+
+    // Dashboard
+    private JLabel totalStudentsValue;
+    private JLabel presentValue;
+    private JLabel absentValue;
+    private JLabel lateValue;
+    private JLabel percentageValue;
 
     public AttendancePanel() {
-        setLayout(new BorderLayout());
 
-        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        row1.add(new JLabel("Course")); row1.add(cmbCourse);
-        row1.add(new JLabel("Date (yyyy-mm-dd)")); row1.add(txtDate);
-        JButton btnLoad = new JButton("Load Students");
-        row1.add(btnLoad);
+        setLayout(new BorderLayout(12, 12));
+        setBackground(SOFT_BLUE);
 
-        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton btnAllP = new JButton("All Present");
-        JButton btnAllA = new JButton("All Absent");
-        JButton btnSave = new JButton("Save Attendance");
-        JButton btnPct = new JButton("Calculate Percentage");
-        JButton btnShort = new JButton("Show Shortage (<75%)");
-        row2.add(btnAllP); row2.add(btnAllA); row2.add(btnSave);
-        row2.add(btnPct); row2.add(btnShort);
+        setBorder(
+            BorderFactory.createEmptyBorder(15, 15, 15, 15)
+        );
 
-        JPanel top = new JPanel(new GridLayout(2, 1));
-        top.add(row1); top.add(row2);
-        add(top, BorderLayout.NORTH);
-        add(new JScrollPane(table), BorderLayout.CENTER);
+        // ================= HEADER =================
 
-        // Action listeners
-        btnLoad.addActionListener(e -> loadStudents());
-        cmbCourse.addActionListener(e -> loadStudents());
-        btnAllP.addActionListener(e -> setAll(true));
-        btnAllA.addActionListener(e -> setAll(false));
-        btnSave.addActionListener(e -> saveAttendance());
-        btnPct.addActionListener(e -> showPercentages(false));
-        btnShort.addActionListener(e -> showPercentages(true));
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(SOFT_BLUE);
 
-        // Mouse listener: double-click Roll No / Name to toggle Present
-        table.addMouseListener(new MouseAdapter() {
+        JLabel heading = new JLabel("Attendance Management");
+
+        heading.setFont(
+            new Font("Arial", Font.BOLD, 27)
+        );
+
+        heading.setForeground(DARK_TEAL);
+
+        JLabel subtitle = new JLabel(
+            "Record and manage student attendance"
+        );
+
+        subtitle.setFont(
+            new Font("Arial", Font.PLAIN, 13)
+        );
+
+        subtitle.setForeground(TEXT_COLOR);
+
+        JPanel titlePanel = new JPanel(
+            new GridLayout(2, 1, 0, 5)
+        );
+
+        titlePanel.setBackground(SOFT_BLUE);
+        titlePanel.add(heading);
+        titlePanel.add(subtitle);
+
+        headerPanel.add(titlePanel, BorderLayout.NORTH);
+
+        // ================= DASHBOARD =================
+
+        JPanel dashboardPanel = new JPanel(
+            new GridLayout(1, 5, 12, 12)
+        );
+
+        dashboardPanel.setBackground(SOFT_BLUE);
+
+        dashboardPanel.setBorder(
+            BorderFactory.createEmptyBorder(15, 0, 10, 0)
+        );
+
+        totalStudentsValue = createValueLabel();
+        presentValue = createValueLabel();
+        absentValue = createValueLabel();
+        lateValue = createValueLabel();
+        percentageValue = createValueLabel();
+
+        dashboardPanel.add(
+            createStatCard(
+                "Total Students",
+                totalStudentsValue,
+                SAGE_GREEN
+            )
+        );
+
+        dashboardPanel.add(
+            createStatCard(
+                "Present",
+                presentValue,
+                WHITE
+            )
+        );
+
+        dashboardPanel.add(
+            createStatCard(
+                "Absent",
+                absentValue,
+                SAGE_GREEN
+            )
+        );
+
+        dashboardPanel.add(
+            createStatCard(
+                "Late",
+                lateValue,
+                WHITE
+            )
+        );
+
+        dashboardPanel.add(
+            createStatCard(
+                "Attendance Rate",
+                percentageValue,
+                SAGE_GREEN
+            )
+        );
+
+        headerPanel.add(
+            dashboardPanel,
+            BorderLayout.CENTER
+        );
+
+        add(headerPanel, BorderLayout.NORTH);
+
+        // ================= SELECT STUDENT =================
+
+        studentCombo = new JComboBox<>();
+        studentCombo.setMaximumRowCount(8);
+        studentCombo.setEditable(false);
+
+        // ================= SELECT COURSE =================
+
+        courseCombo = new JComboBox<>();
+        courseCombo.setMaximumRowCount(8);
+        courseCombo.setEditable(false);
+
+        // ================= SELECT DATE =================
+
+        dateSpinner = new JSpinner(
+            new SpinnerDateModel()
+        );
+
+        dateSpinner.setValue(
+            java.sql.Date.valueOf(LocalDate.now())
+        );
+
+        JSpinner.DateEditor dateEditor =
+            new JSpinner.DateEditor(
+                dateSpinner,
+                "yyyy-MM-dd"
+            );
+
+        dateSpinner.setEditor(dateEditor);
+
+        // ================= SELECT STATUS =================
+
+        statusCombo = new JComboBox<>(
+            new String[]{
+                "Present",
+                "Absent",
+                "Late"
+            }
+        );
+
+        styleInput(studentCombo);
+        styleInput(courseCombo);
+        styleInput(dateSpinner);
+        styleInput(statusCombo);
+
+        // ================= FORM PANEL =================
+
+        JPanel formPanel = new JPanel(
+            new GridLayout(2, 3, 15, 12)
+        );
+
+        formPanel.setBackground(WHITE);
+
+        formPanel.setBorder(
+            BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(
+                    SAGE_GREEN, 2
+                ),
+                BorderFactory.createTitledBorder(
+                    "Select Attendance Details"
+                )
+            )
+        );
+
+        formPanel.add(
+            createFieldPanel(
+                "Select Student",
+                studentCombo
+            )
+        );
+
+        formPanel.add(
+            createFieldPanel(
+                "Select Course",
+                courseCombo
+            )
+        );
+
+        formPanel.add(
+            createFieldPanel(
+                "Select Date",
+                dateSpinner
+            )
+        );
+
+        formPanel.add(
+            createFieldPanel(
+                "Attendance Status",
+                statusCombo
+            )
+        );
+
+        // ================= BUTTONS =================
+
+        JButton saveButton =
+            createButton("Save Attendance");
+
+        JButton clearButton =
+            createButton("Clear");
+
+        JButton deleteButton =
+            createButton("Delete Selected");
+
+        JButton refreshButton =
+            createButton("Refresh");
+
+        JPanel savePanel = new JPanel(
+            new FlowLayout(FlowLayout.LEFT)
+        );
+
+        savePanel.setBackground(WHITE);
+        savePanel.add(saveButton);
+
+        formPanel.add(savePanel);
+
+        JPanel clearPanel = new JPanel(
+            new FlowLayout(FlowLayout.LEFT)
+        );
+
+        clearPanel.setBackground(WHITE);
+        clearPanel.add(clearButton);
+
+        formPanel.add(clearPanel);
+
+        // ================= TABLE =================
+
+        model = new DefaultTableModel(
+            new String[]{
+                "Student ID",
+                "Course ID",
+                "Roll Number",
+                "Student Name",
+                "Course",
+                "Date",
+                "Status"
+            },
+            0
+        ) {
+
+            private static final long serialVersionUID = 1L;
+
             @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2 && table.getModel() == markModel) {
-                    int r = table.rowAtPoint(e.getPoint());
-                    int c = table.columnAtPoint(e.getPoint());
-                    if (r >= 0 && c != 3) {
-                        toggleRow(r);
+            public boolean isCellEditable(
+                int row,
+                int column
+            ) {
+                return false;
+            }
+        };
+
+        attendanceTable = new JTable(model);
+
+        attendanceTable.setRowHeight(29);
+
+        attendanceTable.setFont(
+            new Font("Arial", Font.PLAIN, 13)
+        );
+
+        attendanceTable.setSelectionMode(
+            ListSelectionModel.SINGLE_SELECTION
+        );
+
+        attendanceTable.setSelectionBackground(SAGE_GREEN);
+        attendanceTable.setSelectionForeground(TEXT_COLOR);
+        attendanceTable.setGridColor(
+            new Color(225, 232, 235)
+        );
+
+        JTableHeader tableHeader =
+            attendanceTable.getTableHeader();
+
+        tableHeader.setFont(
+            new Font("Arial", Font.BOLD, 13)
+        );
+
+        tableHeader.setBackground(MUTED_TEAL);
+        tableHeader.setForeground(WHITE);
+
+        tableHeader.setPreferredSize(
+            new Dimension(0, 35)
+        );
+
+        JScrollPane scrollPane =
+            new JScrollPane(attendanceTable);
+
+        scrollPane.getViewport().setBackground(WHITE);
+
+        scrollPane.setBorder(
+            BorderFactory.createLineBorder(
+                SAGE_GREEN, 2
+            )
+        );
+
+        // ================= TABLE BUTTON PANEL =================
+
+        JPanel tableButtonPanel = new JPanel(
+            new FlowLayout(FlowLayout.CENTER, 12, 8)
+        );
+
+        tableButtonPanel.setBackground(SOFT_BLUE);
+
+        tableButtonPanel.add(deleteButton);
+        tableButtonPanel.add(refreshButton);
+
+        // ================= CENTER PANEL =================
+
+        JPanel centerPanel = new JPanel(
+            new BorderLayout(12, 12)
+        );
+
+        centerPanel.setBackground(SOFT_BLUE);
+
+        centerPanel.add(
+            formPanel,
+            BorderLayout.NORTH
+        );
+
+        centerPanel.add(
+            scrollPane,
+            BorderLayout.CENTER
+        );
+
+        centerPanel.add(
+            tableButtonPanel,
+            BorderLayout.SOUTH
+        );
+
+        add(centerPanel, BorderLayout.CENTER);
+
+        // ================= ACTION LISTENERS =================
+
+        saveButton.addActionListener(
+            e -> saveAttendance()
+        );
+
+        clearButton.addActionListener(
+            e -> clearFields()
+        );
+
+        deleteButton.addActionListener(
+            e -> deleteAttendance()
+        );
+
+        refreshButton.addActionListener(
+            e -> refreshAll()
+        );
+
+        courseCombo.addActionListener(
+            e -> loadDashboard()
+        );
+
+        dateSpinner.addChangeListener(
+            e -> loadDashboard()
+        );
+
+        // Initial loading
+        refreshAll();
+    }
+
+    // ================= FIELD PANEL =================
+
+    private JPanel createFieldPanel(
+        String title,
+        JComponent component
+    ) {
+
+        JPanel panel = new JPanel(
+            new BorderLayout(5, 5)
+        );
+
+        panel.setBackground(WHITE);
+
+        JLabel label = new JLabel(title);
+
+        label.setFont(
+            new Font("Arial", Font.BOLD, 13)
+        );
+
+        label.setForeground(TEXT_COLOR);
+
+        panel.add(label, BorderLayout.NORTH);
+        panel.add(component, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    // ================= DASHBOARD CARD =================
+
+    private JLabel createValueLabel() {
+
+        JLabel label = new JLabel("0");
+
+        label.setFont(
+            new Font("Arial", Font.BOLD, 24)
+        );
+
+        label.setForeground(DARK_TEAL);
+
+        label.setHorizontalAlignment(
+            SwingConstants.CENTER
+        );
+
+        return label;
+    }
+
+    private JPanel createStatCard(
+        String title,
+        JLabel value,
+        Color background
+    ) {
+
+        JPanel card = new JPanel(
+            new BorderLayout(5, 8)
+        );
+
+        card.setBackground(background);
+
+        card.setBorder(
+            BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(
+                    SAGE_GREEN
+                ),
+                BorderFactory.createEmptyBorder(
+                    12, 8, 12, 8
+                )
+            )
+        );
+
+        JLabel titleLabel = new JLabel(title);
+
+        titleLabel.setFont(
+            new Font("Arial", Font.BOLD, 12)
+        );
+
+        titleLabel.setForeground(TEXT_COLOR);
+
+        titleLabel.setHorizontalAlignment(
+            SwingConstants.CENTER
+        );
+
+        card.add(titleLabel, BorderLayout.NORTH);
+        card.add(value, BorderLayout.CENTER);
+
+        return card;
+    }
+
+    // ================= INPUT STYLE =================
+
+    private void styleInput(JComponent component) {
+
+        component.setFont(
+            new Font("Arial", Font.PLAIN, 13)
+        );
+
+        component.setBackground(WHITE);
+        component.setForeground(TEXT_COLOR);
+
+    }
+
+    // ================= BUTTON STYLE =================
+
+    private JButton createButton(String text) {
+
+        JButton button = new JButton(text);
+
+        button.setFont(
+            new Font("Arial", Font.BOLD, 12)
+        );
+
+        button.setBackground(MUTED_TEAL);
+        button.setForeground(WHITE);
+
+        button.setFocusPainted(false);
+
+        button.setBorder(
+            BorderFactory.createEmptyBorder(
+                10, 16, 10, 16
+            )
+        );
+
+        button.setCursor(
+            new Cursor(Cursor.HAND_CURSOR)
+        );
+
+        return button;
+    }
+
+    // ================= STUDENT ITEM =================
+
+    private static class StudentItem {
+
+        int id;
+        String rollNo;
+        String name;
+
+        StudentItem(
+            int id,
+            String rollNo,
+            String name
+        ) {
+
+            this.id = id;
+            this.rollNo = rollNo;
+            this.name = name;
+        }
+
+        @Override
+        public String toString() {
+
+            return rollNo + " - " + name;
+        }
+    }
+
+    // ================= COURSE ITEM =================
+
+    private static class CourseItem {
+
+        int id;
+        String name;
+
+        CourseItem(int id, String name) {
+
+            this.id = id;
+            this.name = name;
+        }
+
+        @Override
+        public String toString() {
+
+            return name;
+        }
+    }
+
+    // ================= LOAD STUDENTS =================
+
+    private void loadStudents() {
+
+        studentCombo.removeAllItems();
+
+        String sql =
+            "SELECT student_id, roll_no, name " +
+            "FROM students ORDER BY name";
+
+        try (
+            Connection con =
+                DatabaseConnection.getConnection();
+
+            PreparedStatement ps =
+                con.prepareStatement(sql);
+
+            ResultSet rs = ps.executeQuery()
+        ) {
+
+            while (rs.next()) {
+
+                studentCombo.addItem(
+                    new StudentItem(
+                        rs.getInt("student_id"),
+                        rs.getString("roll_no"),
+                        rs.getString("name")
+                    )
+                );
+            }
+
+        } catch (SQLException ex) {
+
+            showError(ex);
+        }
+    }
+
+    // ================= LOAD COURSES =================
+
+    private void loadCourses() {
+
+        courseCombo.removeAllItems();
+
+        String sql =
+            "SELECT course_id, course_name " +
+            "FROM courses ORDER BY course_name";
+
+        try (
+            Connection con =
+                DatabaseConnection.getConnection();
+
+            PreparedStatement ps =
+                con.prepareStatement(sql);
+
+            ResultSet rs = ps.executeQuery()
+        ) {
+
+            while (rs.next()) {
+
+                courseCombo.addItem(
+                    new CourseItem(
+                        rs.getInt("course_id"),
+                        rs.getString("course_name")
+                    )
+                );
+            }
+
+        } catch (SQLException ex) {
+
+            showError(ex);
+        }
+    }
+
+    // ================= GET SELECTED DATE =================
+
+    private java.sql.Date getSelectedDate() {
+
+        java.util.Date selected =
+            (java.util.Date) dateSpinner.getValue();
+
+        return new java.sql.Date(
+            selected.getTime()
+        );
+    }
+
+    // ================= SAVE ATTENDANCE =================
+
+    private void saveAttendance() {
+
+        StudentItem student =
+            (StudentItem) studentCombo.getSelectedItem();
+
+        CourseItem course =
+            (CourseItem) courseCombo.getSelectedItem();
+
+        if (student == null) {
+
+            JOptionPane.showMessageDialog(
+                this,
+                "Please select a student."
+            );
+
+            return;
+        }
+
+        if (course == null) {
+
+            JOptionPane.showMessageDialog(
+                this,
+                "Please select a course."
+            );
+
+            return;
+        }
+
+        java.sql.Date attendanceDate =
+            getSelectedDate();
+
+        String status =
+            (String) statusCombo.getSelectedItem();
+
+        try (
+            Connection con =
+                DatabaseConnection.getConnection()
+        ) {
+
+            // Check for existing attendance
+            String checkSql =
+                "SELECT COUNT(*) FROM attendance " +
+                "WHERE student_id = ? " +
+                "AND course_id = ? " +
+                "AND attendance_date = ?";
+
+            try (
+                PreparedStatement check =
+                    con.prepareStatement(checkSql)
+            ) {
+
+                check.setInt(1, student.id);
+                check.setInt(2, course.id);
+                check.setDate(3, attendanceDate);
+
+                try (ResultSet rs = check.executeQuery()) {
+
+                    if (rs.next() && rs.getInt(1) > 0) {
+
+                        JOptionPane.showMessageDialog(
+                            this,
+                            "Attendance already exists for " +
+                            student.name +
+                            " in this course on " +
+                            attendanceDate +
+                            ". Only one attendance entry is allowed."
+                        );
+
+                        return;
                     }
                 }
             }
-        });
 
-        // Key listener: P = present, A = absent for the selected row
-        table.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (table.getModel() != markModel) return;
-                int r = table.getSelectedRow();
-                if (r < 0) return;
-                if (e.getKeyCode() == KeyEvent.VK_P) {
-                    markModel.setValueAt(Boolean.TRUE, r, 3);
-                    moveDown(r);
-                } else if (e.getKeyCode() == KeyEvent.VK_A) {
-                    markModel.setValueAt(Boolean.FALSE, r, 3);
-                    moveDown(r);
-                }
-            }
-        });
+            // Insert attendance only if it does not exist
+            String insertSql =
+                "INSERT INTO attendance " +
+                "(student_id, course_id, attendance_date, status) " +
+                "VALUES (?, ?, ?, ?)";
 
-        // Key listener: Date field - digits and '-' only, Enter loads students
-        txtDate.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyTyped(KeyEvent e) {
-                char c = e.getKeyChar();
-                if (c != '\n' && c != '-' && !Character.isDigit(c)
-                        && c != KeyEvent.VK_BACK_SPACE && c != KeyEvent.VK_DELETE) {
-                    e.consume();
-                }
+            try (
+                PreparedStatement ps =
+                    con.prepareStatement(insertSql)
+            ) {
+
+                ps.setInt(1, student.id);
+                ps.setInt(2, course.id);
+                ps.setDate(3, attendanceDate);
+                ps.setString(4, status);
+
+                ps.executeUpdate();
             }
 
-            @Override
-            public void keyReleased(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    loadStudents();
+            JOptionPane.showMessageDialog(
+                this,
+                "Attendance saved successfully!"
+            );
+
+            clearFields();
+            refreshAll();
+
+        } catch (SQLIntegrityConstraintViolationException ex) {
+
+            JOptionPane.showMessageDialog(
+                this,
+                "Duplicate attendance is not allowed for this student, course and date."
+            );
+
+        } catch (SQLException ex) {
+
+            showError(ex);
+        }
+    }
+
+    // ================= LOAD ATTENDANCE TABLE =================
+
+    private void loadAttendance() {
+
+        model.setRowCount(0);
+
+        String sql =
+            "SELECT a.student_id, a.course_id, " +
+            "s.roll_no, s.name, c.course_name, " +
+            "a.attendance_date, a.status " +
+            "FROM attendance a " +
+            "JOIN students s ON a.student_id = s.student_id " +
+            "JOIN courses c ON a.course_id = c.course_id " +
+            "ORDER BY a.attendance_date DESC";
+
+        try (
+            Connection con =
+                DatabaseConnection.getConnection();
+
+            PreparedStatement ps =
+                con.prepareStatement(sql);
+
+            ResultSet rs = ps.executeQuery()
+        ) {
+
+            while (rs.next()) {
+
+                model.addRow(
+                    new Object[]{
+
+                        rs.getInt("student_id"),
+
+                        rs.getInt("course_id"),
+
+                        rs.getString("roll_no"),
+
+                        rs.getString("name"),
+
+                        rs.getString("course_name"),
+
+                        rs.getDate("attendance_date"),
+
+                        rs.getString("status")
+                    }
+                );
+            }
+
+        } catch (SQLException ex) {
+
+            showError(ex);
+        }
+    }
+
+    // ================= DASHBOARD STATISTICS =================
+
+    private void loadDashboard() {
+
+        java.sql.Date selectedDate =
+            getSelectedDate();
+
+        try (
+            Connection con =
+                DatabaseConnection.getConnection()
+        ) {
+
+            // Total students
+            String studentSql =
+                "SELECT COUNT(*) FROM students";
+
+            try (
+                PreparedStatement ps =
+                    con.prepareStatement(studentSql);
+
+                ResultSet rs = ps.executeQuery()
+            ) {
+
+                if (rs.next()) {
+
+                    totalStudentsValue.setText(
+                        String.valueOf(rs.getInt(1))
+                    );
                 }
             }
-        });
 
+            // Statistics for selected date and course
+            CourseItem course =
+                (CourseItem) courseCombo.getSelectedItem();
+
+            String attendanceSql =
+                "SELECT COUNT(*) AS total_records, " +
+                "COALESCE(SUM(CASE WHEN status = 'Present' " +
+                "THEN 1 ELSE 0 END), 0) AS present_count, " +
+                "COALESCE(SUM(CASE WHEN status = 'Absent' " +
+                "THEN 1 ELSE 0 END), 0) AS absent_count, " +
+                "COALESCE(SUM(CASE WHEN status = 'Late' " +
+                "THEN 1 ELSE 0 END), 0) AS late_count " +
+                "FROM attendance WHERE attendance_date = ?";
+
+            if (course != null) {
+
+                attendanceSql += " AND course_id = ?";
+            }
+
+            try (
+                PreparedStatement ps =
+                    con.prepareStatement(attendanceSql)
+            ) {
+
+                ps.setDate(1, selectedDate);
+
+                if (course != null) {
+                    ps.setInt(2, course.id);
+                }
+
+                try (ResultSet rs = ps.executeQuery()) {
+
+                    if (rs.next()) {
+
+                        int total =
+                            rs.getInt("total_records");
+
+                        int present =
+                            rs.getInt("present_count");
+
+                        int absent =
+                            rs.getInt("absent_count");
+
+                        int late =
+                            rs.getInt("late_count");
+
+                        presentValue.setText(
+                            String.valueOf(present)
+                        );
+
+                        absentValue.setText(
+                            String.valueOf(absent)
+                        );
+
+                        lateValue.setText(
+                            String.valueOf(late)
+                        );
+
+                        double percentage = 0;
+
+                        if (total > 0) {
+
+                            percentage =
+                                (present * 100.0) / total;
+                        }
+
+                        percentageValue.setText(
+                            String.format(
+                                "%.1f%%",
+                                percentage
+                            )
+                        );
+                    }
+                }
+            }
+
+        } catch (SQLException ex) {
+
+            showError(ex);
+        }
+    }
+
+    // ================= DELETE ATTENDANCE =================
+
+    private void deleteAttendance() {
+
+        int row =
+            attendanceTable.getSelectedRow();
+
+        if (row == -1) {
+
+            JOptionPane.showMessageDialog(
+                this,
+                "Please select an attendance record."
+            );
+
+            return;
+        }
+
+        int studentId =
+            (int) model.getValueAt(row, 0);
+
+        int courseId =
+            (int) model.getValueAt(row, 1);
+
+        java.sql.Date attendanceDate =
+            java.sql.Date.valueOf(
+                model.getValueAt(row, 5).toString()
+            );
+
+        int choice =
+            JOptionPane.showConfirmDialog(
+                this,
+                "Are you sure you want to delete this attendance record?",
+                "Confirm Delete",
+                JOptionPane.YES_NO_OPTION
+            );
+
+        if (choice != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        String sql =
+            "DELETE FROM attendance " +
+            "WHERE student_id = ? " +
+            "AND course_id = ? " +
+            "AND attendance_date = ?";
+
+        try (
+            Connection con =
+                DatabaseConnection.getConnection();
+
+            PreparedStatement ps =
+                con.prepareStatement(sql)
+        ) {
+
+            ps.setInt(1, studentId);
+            ps.setInt(2, courseId);
+            ps.setDate(3, attendanceDate);
+
+            int deleted = ps.executeUpdate();
+
+            if (deleted > 0) {
+
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Attendance deleted successfully."
+                );
+            }
+
+            refreshAll();
+
+        } catch (SQLException ex) {
+
+            showError(ex);
+        }
+    }
+
+    // ================= CLEAR FORM =================
+
+    private void clearFields() {
+
+        dateSpinner.setValue(
+            java.sql.Date.valueOf(LocalDate.now())
+        );
+
+        statusCombo.setSelectedIndex(0);
+
+        if (studentCombo.getItemCount() > 0) {
+
+            studentCombo.setSelectedIndex(0);
+        }
+
+        if (courseCombo.getItemCount() > 0) {
+
+            courseCombo.setSelectedIndex(0);
+        }
+
+        attendanceTable.clearSelection();
+    }
+
+    // ================= REFRESH =================
+
+    private void refreshAll() {
+
+        loadStudents();
         loadCourses();
+        loadAttendance();
+        loadDashboard();
     }
 
-    private void toggleRow(int r) {
-        boolean now = Boolean.TRUE.equals(markModel.getValueAt(r, 3));
-        markModel.setValueAt(!now, r, 3);
-    }
-
-    private void moveDown(int r) {
-        if (r + 1 < table.getRowCount()) {
-            table.setRowSelectionInterval(r + 1, r + 1);
-        }
-    }
-
-    private void loadCourses() {
-        try (Connection con = DatabaseConnection.getConnection();
-             Statement st = con.createStatement();
-             ResultSet rs = st.executeQuery("SELECT course_id, course_name FROM courses")) {
-            while (rs.next()) {
-                cmbCourse.addItem(new Item(rs.getInt(1), rs.getInt(1) + " - " + rs.getString(2)));
-            }
-        } catch (SQLException ex) { showError(ex); }
-    }
-
-    private int selectedCourse() {
-        Item it = (Item) cmbCourse.getSelectedItem();
-        return it == null ? -1 : it.id;
-    }
-
-    private void loadStudents() {
-        int cid = selectedCourse();
-        if (cid < 0) return;
-        table.setModel(markModel);
-        String sql = "SELECT s.student_id, s.roll_no, s.name FROM students s "
-                   + "JOIN course_registration r ON r.student_id = s.student_id "
-                   + "WHERE r.course_id = ? ORDER BY s.roll_no";
-        try (Connection con = DatabaseConnection.getConnection();
-             PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setInt(1, cid);
-            ResultSet rs = ps.executeQuery();
-            markModel.setRowCount(0);
-            while (rs.next()) {
-                markModel.addRow(new Object[]{rs.getInt(1), rs.getString(2),
-                    rs.getString(3), Boolean.TRUE});
-            }
-        } catch (SQLException ex) { showError(ex); }
-    }
-
-    private void setAll(boolean value) {
-        if (table.getModel() != markModel) return;
-        for (int i = 0; i < markModel.getRowCount(); i++) {
-            markModel.setValueAt(value, i, 3);
-        }
-    }
-
-    private void saveAttendance() {
-        if (table.getModel() != markModel || markModel.getRowCount() == 0) {
-            JOptionPane.showMessageDialog(this, "Load students first.");
-            return;
-        }
-        if (table.isEditing()) table.getCellEditor().stopCellEditing();
-        int cid = selectedCourse();
-        Date date;
-        try {
-            date = Date.valueOf(txtDate.getText().trim());
-        } catch (IllegalArgumentException ex) {
-            JOptionPane.showMessageDialog(this, "Date must look like 2026-11-11.");
-            return;
-        }
-        try (Connection con = DatabaseConnection.getConnection()) {
-            con.setAutoCommit(false);
-            try (PreparedStatement del = con.prepareStatement(
-                    "DELETE FROM attendance WHERE course_id=? AND att_date=?");
-                 PreparedStatement ins = con.prepareStatement(
-                    "INSERT INTO attendance (student_id, course_id, att_date, status) VALUES (?,?,?,?)")) {
-                del.setInt(1, cid); del.setDate(2, date);
-                del.executeUpdate();
-                for (int i = 0; i < markModel.getRowCount(); i++) {
-                    boolean present = Boolean.TRUE.equals(markModel.getValueAt(i, 3));
-                    ins.setInt(1, (Integer) markModel.getValueAt(i, 0));
-                    ins.setInt(2, cid);
-                    ins.setDate(3, date);
-                    ins.setString(4, present ? "Present" : "Absent");
-                    ins.addBatch();
-                }
-                ins.executeBatch();
-                con.commit();
-                JOptionPane.showMessageDialog(this, "Attendance saved for " + date + ".");
-            } catch (SQLException ex) {
-                con.rollback();
-                throw ex;
-            }
-        } catch (SQLException ex) { showError(ex); }
-    }
-
-    private void showPercentages(boolean shortageOnly) {
-        int cid = selectedCourse();
-        if (cid < 0) return;
-        String sql = "SELECT s.roll_no, s.name, "
-                   + "(SELECT COUNT(DISTINCT att_date) FROM attendance WHERE course_id = ?) AS held, "
-                   + "COALESCE(SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END), 0) AS present "
-                   + "FROM students s "
-                   + "JOIN course_registration r ON r.student_id = s.student_id AND r.course_id = ? "
-                   + "LEFT JOIN attendance a ON a.student_id = s.student_id AND a.course_id = ? "
-                   + "GROUP BY s.student_id, s.roll_no, s.name ORDER BY s.roll_no";
-        try (Connection con = DatabaseConnection.getConnection();
-             PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setInt(1, cid); ps.setInt(2, cid); ps.setInt(3, cid);
-            ResultSet rs = ps.executeQuery();
-            table.setModel(pctModel);
-            pctModel.setRowCount(0);
-            while (rs.next()) {
-                int held = rs.getInt(3);
-                int present = rs.getInt(4);
-                double pct = held == 0 ? 0 : present * 100.0 / held;
-                boolean shortage = held > 0 && pct < MIN_PERCENT;
-                if (shortageOnly && !shortage) continue;
-                pctModel.addRow(new Object[]{rs.getString(1), rs.getString(2), held, present,
-                    String.format("%.1f%%", pct), shortage ? "SHORTAGE" : "OK"});
-            }
-            if (pctModel.getRowCount() == 0) {
-                JOptionPane.showMessageDialog(this, shortageOnly
-                    ? "No students below " + MIN_PERCENT + "%."
-                    : "No attendance recorded yet.");
-            }
-        } catch (SQLException ex) { showError(ex); }
-    }
+    // ================= ERROR MESSAGE =================
 
     private void showError(SQLException ex) {
-        JOptionPane.showMessageDialog(this, "Database error: " + ex.getMessage());
+
+        JOptionPane.showMessageDialog(
+            this,
+            ex.getMessage(),
+            "Database Error",
+            JOptionPane.ERROR_MESSAGE
+        );
+
+        ex.printStackTrace();
     }
 }

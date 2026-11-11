@@ -12,6 +12,7 @@ import java.awt.event.MouseEvent;
 import java.sql.*;
 
 public class ExaminationPanel extends JPanel {
+	private static final long serialVersionUID = 1L;
 
     private static class Item {
         final int id; final String label;
