@@ -1,0 +1,4 @@
+# Copy to db.properties in the project root (working directory) and edit.
+url=jdbc:mysql://localhost:3306/college_admin
+user=root
+password=your_password
